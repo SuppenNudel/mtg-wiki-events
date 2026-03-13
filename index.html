@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>mtg.wiki Events</title>
+    <link rel="stylesheet" href="load.php">
+    <link rel="stylesheet" href="customizations.css">
+</head>
+
+<body>
+    <div id="embedded-content">Loading...</div>
+    <script>
+        // URL of the page to fetch (mtg.wiki in this case)
+        const proxy = "https://corsproxy.io/?";
+        const url = "https://mtg.wiki/";
+        // The selector for the element to extract
+        const selector = ".flex > div:nth-child(2) > div:nth-child(1)";
+
+        // Turn a possibly-relative URL into an absolute URL based on `base`
+        function toAbsolute(href, base) {
+            if (!href) return href;
+            href = href.trim();
+            // Don't rewrite javascript:, data:, mailto:, tel:, or hash-only if you want to keep them as-is
+            if (/^(javascript:|data:|mailto:|tel:|#)/i.test(href)) return href;
+            try {
+                return new URL(href, base).href;
+            } catch (e) {
+                return href;
+            }
+        }
+
+        // Rewrite srcset attribute (may contain multiple URLs)
+        function rewriteSrcset(srcset, base) {
+            if (!srcset) return srcset;
+            return srcset.split(',')
+                .map(part => {
+                    const trimmed = part.trim();
+                    // split on whitespace to separate URL and descriptor (e.g. "image.jpg 2x")
+                    const [maybeUrl, ...rest] = trimmed.split(/\s+/);
+                    const abs = toAbsolute(maybeUrl, base);
+                    return abs + (rest.length ? ' ' + rest.join(' ') : '');
+                })
+                .join(', ');
+        }
+
+        // Replace CSS url(...) occurrences with absolute URLs
+        function rewriteCssUrls(cssText, base) {
+            if (!cssText) return cssText;
+            return cssText.replace(/url\((['"]?)([^'")]+)\1\)/g, (m, q, u) => {
+                // preserve data: and absolute URLs and hashes
+                if (/^(data:|javascript:|#)/i.test(u)) return m;
+                return `url("${toAbsolute(u, base)}")`;
+            });
+        }
+
+        fetch(proxy + encodeURIComponent(url))
+            .then(response => response.text())
+            .then(html => {
+                // Parse the HTML
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, "text/html");
+                // Query the element
+                const element = doc.querySelector(selector);
+                if (!element) {
+                    document.getElementById("embedded-content").textContent = "Element not found.";
+                    return;
+                }
+
+                // Create a container to manipulate the snippet safely
+                const container = document.createElement('div');
+                container.innerHTML = element.innerHTML;
+
+                // Attributes we want to absolutify
+                const ATTRS = {
+                    href: ['A', 'LINK', 'AREA'],
+                    src: ['IMG', 'SCRIPT', 'IFRAME', 'SOURCE', 'VIDEO', 'AUDIO', 'TRACK'],
+                    srcset: ['IMG', 'SOURCE'],
+                    action: ['FORM'],
+                    poster: ['VIDEO'],
+                    data: ['OBJECT']
+                };
+
+                // Walk elements and rewrite attributes
+                container.querySelectorAll('*').forEach(node => {
+                    const tag = node.tagName;
+
+                    // href
+                    if (node.hasAttribute('href')) {
+                        const original = node.getAttribute('href');
+                        node.setAttribute('href', toAbsolute(original, url));
+                    }
+
+                    // src
+                    if (node.hasAttribute('src')) {
+                        const original = node.getAttribute('src');
+                        node.setAttribute('src', toAbsolute(original, url));
+                    }
+
+                    // srcset
+                    if (node.hasAttribute('srcset')) {
+                        const original = node.getAttribute('srcset');
+                        node.setAttribute('srcset', rewriteSrcset(original, url));
+                    }
+
+                    // action (forms)
+                    if (node.hasAttribute('action')) {
+                        const original = node.getAttribute('action');
+                        node.setAttribute('action', toAbsolute(original, url));
+                    }
+
+                    // poster
+                    if (node.hasAttribute('poster')) {
+                        const original = node.getAttribute('poster');
+                        node.setAttribute('poster', toAbsolute(original, url));
+                    }
+
+                    // data (object)
+                    if (node.hasAttribute('data')) {
+                        const original = node.getAttribute('data');
+                        node.setAttribute('data', toAbsolute(original, url));
+                    }
+
+                    // inline style attribute: rewrite url(...) inside it
+                    if (node.hasAttribute('style')) {
+                        const original = node.getAttribute('style');
+                        node.setAttribute('style', rewriteCssUrls(original, url));
+                    }
+                });
+
+                // Rewrite URLs inside <style> tags contained in the snippet
+                container.querySelectorAll('style').forEach(styleEl => {
+                    styleEl.textContent = rewriteCssUrls(styleEl.textContent, url);
+                });
+
+                // Optionally, rewrite <link> tags (e.g. stylesheets) and scripts if present in the snippet
+                container.querySelectorAll('link[rel="stylesheet"]').forEach(linkEl => {
+                    if (linkEl.hasAttribute('href')) {
+                        const original = linkEl.getAttribute('href');
+                        linkEl.setAttribute('href', toAbsolute(original, url));
+                    }
+                });
+
+                // Put processed HTML into the page
+                const target = document.getElementById("embedded-content");
+                target.innerHTML = container.innerHTML;
+
+                // If you want links to open in a new tab and avoid referrer issues, you can optionally adjust anchors:
+                // target.querySelectorAll('a').forEach(a => {
+                //   a.setAttribute('target', '_blank');
+                //   a.setAttribute('rel', 'noopener noreferrer');
+                // });
+            })
+            .catch(err => {
+                document.getElementById("embedded-content").textContent = "Error loading content: " + err;
+            });
+    </script>
+</body>
+
+</html>
