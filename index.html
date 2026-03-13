@@ -11,9 +11,8 @@
 <body>
     <div id="embedded-content">Loading...</div>
     <script>
-        // URL of the page to fetch (mtg.wiki in this case)
-        const proxy = "https://corsproxy.io/?";
         const url = "https://mtg.wiki/";
+        const apiUrl = "https://mtg.wiki/api.php?action=parse&page=Main_Page&prop=text&format=json&formatversion=2&origin=*";
         // The selector for the element to extract
         const selector = ".flex > div:nth-child(2) > div:nth-child(1)";
 
@@ -54,9 +53,19 @@
             });
         }
 
-        fetch(proxy + encodeURIComponent(url))
-            .then(response => response.text())
-            .then(html => {
+        fetch(apiUrl)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`API request failed with ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                const html = data?.parse?.text;
+                if (typeof html !== 'string' || html === '') {
+                    throw new Error('API response did not contain parsed HTML.');
+                }
+
                 // Parse the HTML
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(html, "text/html");
